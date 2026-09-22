@@ -111,10 +111,14 @@ def auth_callback(request: Request, code: str = "", state: str = "") -> Response
     if not code or not state:
         raise HTTPException(status_code=400, detail="missing code or state")
     try:
-        info = oidc.handle_callback(state, code, request.cookies.get(STATE_COOKIE))
+        state_cookie = request.cookies.get(STATE_COOKIE)
+        decoded_state = oidc._decode(state_cookie)
+        logger.info("OIDC callback state cookie present=%s matches=%s", bool(state_cookie), bool(decoded_state and decoded_state.get("state") == state))
+        info = oidc.handle_callback(state, code, state_cookie)
     except Exception as exc:
         # Log only the exception class: never log authorization codes, tokens or cookies.
-        logger.warning("OIDC callback failed (%s)", type(exc).__name__)
+        reason = getattr(exc, "error", None) or (str(exc) if isinstance(exc, ValueError) else "oauth error")
+        logger.warning("OIDC callback failed (%s): %s", type(exc).__name__, reason[:80])
         raise HTTPException(status_code=400, detail="oidc callback failed") from exc
     response = RedirectResponse(safe_return_url(request.cookies.get("edutictac_prompt_next", APP_URL)))
     session.set_cookie(response, {"sub": info["sub"], "name": info.get("name", ""), "email": info.get("email", "")}, max_age=60 * 60 * 24 * 30)
