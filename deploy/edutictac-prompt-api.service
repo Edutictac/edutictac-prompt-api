@@ -1,0 +1,15 @@
+[Unit]
+Description=EduTicTac Prompt API
+After=network.target
+
+[Service]
+User=samgua
+Group=samgua
+WorkingDirectory=/opt/edutictac-prompt-api
+EnvironmentFile=/etc/edutictac-prompt-api.env
+ExecStart=/opt/edutictac-prompt-api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8012
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
