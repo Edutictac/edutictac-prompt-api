@@ -61,3 +61,11 @@ def test_users_cannot_read_each_other_prompts(monkeypatch, client):
     assert client.delete("/api/prompts/private").status_code == 204
     main.DEV_USER = "user-1"
     assert client.get("/api/prompts").json()["prompts"][0]["id"] == "private"
+
+
+def test_callback_failure_does_not_expose_oidc_details(client, monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main.oidc, "handle_callback", lambda *args: (_ for _ in ()).throw(ValueError("secret code")))
+    response = client.get("/api/auth/callback?code=code&state=state")
+    assert response.status_code == 400
+    assert response.json() == {"detail": "oidc callback failed"}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 from datetime import datetime, timezone
@@ -40,7 +41,8 @@ oidc = OIDCClient(
     user_agent="EduTicTac-Prompt-API/0.1",
 )
 
-app = FastAPI(title="EduTicTac Prompt API", version="0.1.0")
+app = FastAPI(title="EduTicTac Prompt API", version="0.1.1")
+logger = logging.getLogger("edutictac.prompt.auth")
 origins = [x.strip().rstrip("/") for x in os.environ.get("PROMPT_CORS_ORIGINS", APP_URL).split(",") if x.strip()]
 app.add_middleware(
     CORSMiddleware,
@@ -111,6 +113,8 @@ def auth_callback(request: Request, code: str = "", state: str = "") -> Response
     try:
         info = oidc.handle_callback(state, code, request.cookies.get(STATE_COOKIE))
     except Exception as exc:
+        # Log only the exception class: never log authorization codes, tokens or cookies.
+        logger.warning("OIDC callback failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=400, detail="oidc callback failed") from exc
     response = RedirectResponse(safe_return_url(request.cookies.get("edutictac_prompt_next", APP_URL)))
     session.set_cookie(response, {"sub": info["sub"], "name": info.get("name", ""), "email": info.get("email", "")}, max_age=60 * 60 * 24 * 30)
