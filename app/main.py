@@ -41,14 +41,14 @@ oidc = OIDCClient(
     user_agent="EduTicTac-Prompt-API/0.1",
 )
 
-app = FastAPI(title="EduTicTac Prompt API", version="0.1.1")
+app = FastAPI(title="EduTicTac Prompt API", version="0.2.0")
 logger = logging.getLogger("edutictac.prompt.auth")
 origins = [x.strip().rstrip("/") for x in os.environ.get("PROMPT_CORS_ORIGINS", APP_URL).split(",") if x.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "PUT", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -173,3 +173,7 @@ def delete_prompt(prompt_id: str, request: Request) -> Response:
         conn.execute("DELETE FROM prompts WHERE owner_id = ? AND prompt_id = ?", (user["sub"], prompt_id))
         conn.commit()
     return Response(status_code=204)
+
+
+from app.skills import install_skills
+install_skills(app, connect, db_path, current_user, origins, now)
