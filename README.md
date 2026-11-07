@@ -28,6 +28,21 @@ producción.
 El backend nunca acepta un `ownerId` enviado por el navegador: siempre usa la
 identidad validada en la sesión OIDC.
 
+## Sesión central de EduTicTac (fase 4)
+
+Con `PROMPT_CENTRAL_SESSION_URL` y `PROMPT_APP_TOKEN`, la API valida la sesión
+central de Commons en `GET /api/internal/session/resolve` (solo red interna,
+127.0.0.1:8005) reenviando las cookies del navegador. El token de aplicación es
+exclusivo del servidor y nunca se expone al cliente. Se usa el `sub` de
+Authentik (`hashed_user_id`), el mismo en todos los proveedores, así que la
+biblioteca existente conserva su propietario sin migración.
+
+La sesión central tiene prioridad: si Commons dice «anónimo», no se recupera una
+sesión local antigua. La sesión OIDC propia queda como respaldo únicamente si el
+servicio central no responde (error de infraestructura) o en instalaciones sin
+Commons. `GET /api/auth/me` devuelve `central: true` cuando esta modalidad está
+activa.
+
 ## Skills (0.2.0)
 
 La extensión `app/skills.py` reutiliza la sesión OIDC, SQLite y httpx existentes.

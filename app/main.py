@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import secrets
+
+import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,13 @@ SESSION_COOKIE = "edutictac_prompt_session"
 STATE_COOKIE = "edutictac_prompt_oidc_state"
 COOKIE_SECURE = os.environ.get("PROMPT_COOKIE_SECURE", "1") != "0"
 DEV_USER = os.environ.get("PROMPT_DEV_USER", "").strip()
+CENTRAL_URL = os.environ.get("PROMPT_CENTRAL_SESSION_URL", "").rstrip("/")
+CENTRAL_APP_TOKEN = os.environ.get("PROMPT_APP_TOKEN", "")
+try:
+    CENTRAL_TIMEOUT = float(os.environ.get("PROMPT_CENTRAL_TIMEOUT_SECONDS", "3"))
+except ValueError:
+    CENTRAL_TIMEOUT = 3.0
+CENTRAL_ENABLED = bool(CENTRAL_URL and CENTRAL_APP_TOKEN)
 
 db_path = Path(DB_PATH)
 db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -41,7 +50,7 @@ oidc = OIDCClient(
     user_agent="EduTicTac-Prompt-API/0.1",
 )
 
-app = FastAPI(title="EduTicTac Prompt API", version="0.2.0")
+app = FastAPI(title="EduTicTac Prompt API", version="0.3.0")
 logger = logging.getLogger("edutictac.prompt.auth")
 origins = [x.strip().rstrip("/") for x in os.environ.get("PROMPT_CORS_ORIGINS", APP_URL).split(",") if x.strip()]
 app.add_middleware(
@@ -74,9 +83,50 @@ def init_db() -> None:
 init_db()
 
 
+def resolve_central_identity(
+    request: Request, client: httpx.Client | None = None
+) -> tuple[str, dict[str, str] | None]:
+    """Return ("user", user), ("anonymous", None) or ("error", None) from Commons.
+
+    The central cookie is forwarded to the id-api internal endpoint; the app token
+    is only sent server-to-server and never exposed to the browser.
+    """
+    if not CENTRAL_ENABLED:
+        return "disabled", None
+    cookie = request.headers.get("cookie", "")
+    if not cookie:
+        return "anonymous", None
+    headers = {"Authorization": f"Bearer {CENTRAL_APP_TOKEN}", "Cookie": cookie}
+    try:
+        if client is None:
+            with httpx.Client(timeout=CENTRAL_TIMEOUT) as own:
+                response = own.get(f"{CENTRAL_URL}/api/internal/session/resolve", headers=headers)
+        else:
+            response = client.get(f"{CENTRAL_URL}/api/internal/session/resolve", headers=headers)
+        if response.status_code != 200:
+            logger.warning("central session resolve status=%s", response.status_code)
+            return "error", None
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("central session resolve failed (%s)", type(exc).__name__)
+        return "error", None
+    if data.get("kind") == "oidc" and data.get("sub"):
+        return "user", {"sub": str(data["sub"]), "name": str(data.get("display_name") or ""), "email": ""}
+    if data.get("kind") == "student" and data.get("id"):
+        return "user", {"sub": f"student:{data['id']}", "name": str(data.get("public_code") or ""), "email": ""}
+    return "anonymous", None
+
+
 def current_user(request: Request) -> dict[str, str]:
     if DEV_USER:
         return {"sub": DEV_USER, "name": "Development user", "email": ""}
+    if CENTRAL_ENABLED:
+        status, user = resolve_central_identity(request)
+        if status == "user" and user:
+            return user
+        if status == "anonymous":
+            raise HTTPException(status_code=401, detail="authentication required")
+        # Only infrastructure errors fall back to the local session.
     value = session.decode(request.cookies.get(SESSION_COOKIE))
     if not value or not value.get("sub"):
         raise HTTPException(status_code=401, detail="authentication required")
@@ -137,11 +187,20 @@ def auth_logout() -> Response:
 @app.get("/api/auth/me")
 def auth_me(request: Request) -> dict[str, Any]:
     if DEV_USER:
-        return {"authenticated": True, "user": current_user(request)}
+        return {"authenticated": True, "user": current_user(request), "central": CENTRAL_ENABLED}
+    if CENTRAL_ENABLED:
+        status, user = resolve_central_identity(request)
+        if status == "user" and user:
+            return {"authenticated": True, "user": user, "central": True}
+        if status == "anonymous":
+            # Commons is the source of truth: an anonymous central session must not
+            # resurrect an older local Prompt session.
+            return {"authenticated": False, "user": None, "central": True}
+        # Infrastructure error: fall back to the local session below.
     value = session.decode(request.cookies.get(SESSION_COOKIE))
     if not value or not value.get("sub"):
-        return {"authenticated": False, "user": None}
-    return {"authenticated": True, "user": {"sub": value["sub"], "name": value.get("name", ""), "email": value.get("email", "")}}
+        return {"authenticated": False, "user": None, "central": CENTRAL_ENABLED}
+    return {"authenticated": True, "user": {"sub": value["sub"], "name": value.get("name", ""), "email": value.get("email", "")}, "central": CENTRAL_ENABLED}
 
 
 @app.get("/api/prompts")
