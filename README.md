@@ -80,3 +80,7 @@ no muestran mensajes ni cuerpos del proveedor.
 
 Pruebas: `.venv/bin/pytest -q` (regresión de prompts, permisos, CORS/origen,
 estructura, tamaño, conflictos, inferencia simulada y fallos).
+
+## Licencia
+
+Se distribuye bajo la **GNU Affero General Public License v3.0 o posterior** (AGPL-3.0-or-later), igual que el cliente [`edutictac-prompt`](https://git.edutictac.es/Edutictac/edutictac-prompt). El texto completo está en [`LICENSE`](LICENSE). Quien modifique este servicio y lo ofrezca en red debe publicar el código fuente de sus modificaciones. Los prompts que genera el cliente se ceden con CC0 1.0 (ver el `NOTICE` del cliente); los que guardan las personas usuarias son suyos.
