@@ -21,6 +21,7 @@ producción.
 ## Endpoints
 
 - `GET /api/auth/login`, `/callback`, `/logout`, `/me`
+- `GET /api/preferences`, `PUT /api/preferences` (preferencia de formato, privada por usuario)
 - `GET /api/prompts`
 - `PUT /api/prompts/{id}`
 - `DELETE /api/prompts/{id}`

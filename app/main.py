@@ -77,6 +77,10 @@ def init_db() -> None:
                 PRIMARY KEY (owner_id, prompt_id)
             )"""
         )
+        conn.execute("""CREATE TABLE IF NOT EXISTS user_preferences (
+            owner_id TEXT PRIMARY KEY,
+            default_output_format TEXT NOT NULL
+        )""")
         conn.commit()
 
 
@@ -201,6 +205,41 @@ def auth_me(request: Request) -> dict[str, Any]:
     if not value or not value.get("sub"):
         return {"authenticated": False, "user": None, "central": CENTRAL_ENABLED}
     return {"authenticated": True, "user": {"sub": value["sub"], "name": value.get("name", ""), "email": value.get("email", "")}, "central": CENTRAL_ENABLED}
+
+
+@app.get("/api/preferences")
+def get_preferences(request: Request) -> dict[str, str | None]:
+    user = current_user(request)
+    with connect(str(db_path)) as conn:
+        row = conn.execute("SELECT default_output_format FROM user_preferences WHERE owner_id = ?", (user["sub"],)).fetchone()
+    return {"defaultOutputFormat": row[0] if row else None}
+
+
+@app.put("/api/preferences")
+async def save_preferences(request: Request) -> dict[str, str]:
+    user = current_user(request)
+    if request.headers.get("origin") not in origins:
+        raise HTTPException(status_code=403, detail="origin required")
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(status_code=415, detail="json required")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 1024:
+            raise HTTPException(status_code=413, detail="request too large")
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeError):
+        raise HTTPException(status_code=400, detail="invalid preferences") from None
+    if not isinstance(payload, dict) or set(payload) != {"defaultOutputFormat"}:
+        raise HTTPException(status_code=400, detail="invalid preferences")
+    output_format = payload["defaultOutputFormat"]
+    if not isinstance(output_format, str) or len(output_format) > 80 or any(ord(char) < 32 for char in output_format):
+        raise HTTPException(status_code=400, detail="invalid output format")
+    with connect(str(db_path)) as conn:
+        conn.execute("INSERT INTO user_preferences(owner_id,default_output_format) VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET default_output_format=excluded.default_output_format", (user["sub"], output_format))
+        conn.commit()
+    return {"defaultOutputFormat": output_format}
 
 
 @app.get("/api/prompts")

@@ -69,3 +69,21 @@ def test_callback_failure_does_not_expose_oidc_details(client, monkeypatch):
     response = client.get("/api/auth/callback?code=code&state=state")
     assert response.status_code == 400
     assert response.json() == {"detail": "oidc callback failed"}
+
+
+def test_preferences_private_and_validated(client):
+    import app.main as main
+    headers = {"Origin": main.origins[0]}
+    assert client.get('/api/preferences').json() == {'defaultOutputFormat': None}
+    assert client.put('/api/preferences', json={'defaultOutputFormat': 'DOCX'}).status_code == 403
+    assert client.put('/api/preferences', headers=headers, json={'defaultOutputFormat': 'DOCX'}).status_code == 200
+    main.DEV_USER = 'user-2'
+    assert client.get('/api/preferences').json() == {'defaultOutputFormat': None}
+    client.put('/api/preferences', headers=headers, json={'defaultOutputFormat': 'PDF'})
+    main.DEV_USER = 'user-1'
+    assert client.get('/api/preferences').json() == {'defaultOutputFormat': 'DOCX'}
+    assert client.put('/api/preferences', headers=headers, json={'defaultOutputFormat': 'x' * 81}).status_code == 400
+    assert client.put('/api/preferences', headers=headers, json={'defaultOutputFormat': '', 'owner': 'user-2'}).status_code == 400
+    assert client.put('/api/preferences', headers=headers, json={'defaultOutputFormat': ''}).json() == {'defaultOutputFormat': ''}
+    main.DEV_USER = ''
+    assert client.get('/api/preferences').status_code == 401
